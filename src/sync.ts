@@ -12,7 +12,12 @@ export interface CalendarEvent extends ParsedEvent {
   calendarColor: string;
 }
 
-const UID_RE = /<!--\s*ics-uid:([^\s>]+)\s+cal:([^\s>]+)\s*-->/;
+const UID_RE = /<!--\s*ics-uid:(.+?)\s+cal:([^\s>]+)\s*-->/;
+
+/** Strip all whitespace from a UID so pre-fix and post-fix UIDs compare equal. */
+function normalizeUid(uid: string): string {
+  return uid.replace(/\s+/g, '');
+}
 
 // ─── SyncManager ─────────────────────────────────────────────────────────────
 
@@ -60,8 +65,10 @@ export class SyncManager {
     let text: string;
 
     if (cal.url.startsWith('http://') || cal.url.startsWith('https://')) {
-      // Use Obsidian's requestUrl — bypasses CORS restrictions that block browser fetch
-      const resp = await requestUrl({ url: cal.url, method: 'GET', cache: 'no-store' });
+      // Use Obsidian's requestUrl — bypasses CORS restrictions that block browser fetch.
+      // Append timestamp to bust any server-side or CDN cache on the ICS feed.
+      const bustUrl = cal.url + (cal.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+      const resp = await requestUrl({ url: bustUrl, method: 'GET' });
       if (resp.status !== 200) throw new Error(`HTTP ${resp.status} fetching ${cal.url}`);
       text = resp.text;
     } else {
@@ -106,10 +113,10 @@ export class SyncManager {
     const existingByUid = new Map<string, number>();
     lines.forEach((line, i) => {
       const m = line.match(UID_RE);
-      if (m && m[2] === cal.id) existingByUid.set(m[1], i);
+      if (m && m[2] === cal.id) existingByUid.set(normalizeUid(m[1]), i);
     });
 
-    const incomingUids = new Set(events.map((e) => e.uid));
+    const incomingUids = new Set(events.map((e) => normalizeUid(e.uid)));
 
     // Lines to remove (existed before, not in current feed for this cal)
     const toRemove = new Set<number>();
@@ -119,19 +126,19 @@ export class SyncManager {
 
     // Deduplicate incoming events by UID (keep last occurrence)
     const dedupedEvents = new Map<string, CalendarEvent>();
-    for (const ev of events) dedupedEvents.set(ev.uid, ev);
+    for (const ev of events) dedupedEvents.set(normalizeUid(ev.uid), ev);
 
     // Track UIDs added/updated this pass to prevent double-appends
     const processedThisPass = new Set<string>();
 
     // Update or append each incoming event
-    for (const ev of dedupedEvents.values()) {
-      if (processedThisPass.has(ev.uid)) continue;
-      processedThisPass.add(ev.uid);
+    for (const [normUid, ev] of dedupedEvents.entries()) {
+      if (processedThisPass.has(normUid)) continue;
+      processedThisPass.add(normUid);
 
       const newLine = this.formatEventLine(ev, date);
-      if (existingByUid.has(ev.uid)) {
-        lines[existingByUid.get(ev.uid)!] = newLine;
+      if (existingByUid.has(normUid)) {
+        lines[existingByUid.get(normUid)!] = newLine;
       } else {
         lines.push(newLine);
       }

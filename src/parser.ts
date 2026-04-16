@@ -50,8 +50,8 @@ export interface ParsedEvent {
 /** Undo ICS line-folding (continuation lines begin with SPACE or TAB). */
 function unfold(text: string): string[] {
   return text
-    .replace(/\r\n([ \t])/g, '$1')
-    .replace(/\n([ \t])/g, '$1')
+    .replace(/\r\n[ \t]/g, '')   // RFC 5545: strip CRLF + leading whitespace
+    .replace(/\n[ \t]/g, '')      // LF-only variant
     .split(/\r?\n/);
 }
 
