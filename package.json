@@ -2,6 +2,7 @@
   "name": "obsidian-ics-calendar",
   "version": "1.0.0",
   "description": "ICS Calendar Sync for Obsidian",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",
