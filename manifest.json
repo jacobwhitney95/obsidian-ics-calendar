@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-ics-calendar",
+  "name": "ICS Calendar Sync",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Full ICS calendar sync with sidebar view, Windows toast notifications, and Outlook email alerts.",
+  "author": "PMD",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
