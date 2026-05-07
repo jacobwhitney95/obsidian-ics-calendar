@@ -133,4 +133,4 @@ Source files:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT

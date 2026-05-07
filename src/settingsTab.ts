@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
 import type ICSCalendarPlugin from './main';
 import { CalendarConfig } from './settings';
+import { fireNativeNotification } from './notify';
 
 export class ICSCalendarSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: ICSCalendarPlugin) {
@@ -15,6 +16,10 @@ export class ICSCalendarSettingTab extends PluginSettingTab {
     // ── Calendars ────────────────────────────────────────────────────────────
 
     el.createEl('h3', { text: 'Calendars' });
+    el.createEl('p', {
+      cls: 'setting-item-description',
+      text: 'Each entry is one ICS feed URL. In Outlook you have multiple calendars (e.g. "Calendar", "PMD Events", shared calendars) — each one has its own ICS URL and must be added separately here. To get a URL: Outlook Web → Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link.',
+    });
 
     for (const cal of this.plugin.settings.calendars) {
       this.addCalendarEntry(el, cal);
@@ -127,13 +132,20 @@ export class ICSCalendarSettingTab extends PluginSettingTab {
       );
 
     new Setting(el).addButton((btn) =>
-      btn.setButtonText('Test notification now').onClick(() => {
-        const { fireNativeNotification } = require('./notify');
+      btn.setButtonText('Test notification now').setCta().onClick(async () => {
+        // Request permission if not yet granted (required first time)
+        if ('Notification' in window && Notification.permission === 'default') {
+          await Notification.requestPermission();
+        }
+        if ('Notification' in window && Notification.permission === 'denied') {
+          new Notice('⚠️ Notifications are blocked. Allow them in Windows Settings → Notifications → Obsidian.', 8000);
+          return;
+        }
         const ok = fireNativeNotification(
           '📅 ICS Calendar Test',
-          'Native Windows notifications are working!',
+          'Native notifications are working!',
         );
-        if (!ok) new Notice('Electron notifications unavailable — using Obsidian toasts.', 5000);
+        if (!ok) new Notice('Notifications unavailable — falling back to Obsidian toasts.', 5000);
       }),
     );
 
@@ -225,8 +237,28 @@ export class ICSCalendarSettingTab extends PluginSettingTab {
   }
 
   private addCalendarEntry(containerEl: HTMLElement, cal: CalendarConfig) {
-    const s = new Setting(containerEl)
-      .setName('')
+    // Labelled card wrapper
+    const card = containerEl.createDiv({ cls: 'ics-cal-card' });
+    card.style.cssText = 'border:1px solid var(--background-modifier-border);border-radius:6px;padding:10px 14px 6px;margin-bottom:10px;';
+
+    // Header row: bold calendar name + trash button
+    const header = card.createDiv({ cls: 'ics-cal-card-header' });
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;';
+    const label = header.createEl('strong', { text: cal.name || 'Unnamed Calendar' });
+    label.style.cssText = 'font-size:0.95em;';
+
+    const trashBtn = header.createEl('button', { cls: 'mod-warning' });
+    trashBtn.style.cssText = 'padding:2px 8px;font-size:0.8em;';
+    trashBtn.setText('Remove');
+    trashBtn.onclick = () => {
+      this.plugin.settings.calendars = this.plugin.settings.calendars.filter((c) => c.id !== cal.id);
+      this.plugin.saveSettings();
+      this.display();
+    };
+
+    // Enabled toggle + Name
+    new Setting(card)
+      .setName('Name')
       .addToggle((t) =>
         t.setValue(cal.enabled).onChange((v) => {
           cal.enabled = v;
@@ -237,32 +269,29 @@ export class ICSCalendarSettingTab extends PluginSettingTab {
         t
           .setPlaceholder('Calendar name')
           .setValue(cal.name)
-          .onChange((v) => { cal.name = v; this.plugin.saveSettings(); }),
-      )
-      .addText((t) => {
-        t.inputEl.style.width = '260px';
-        t
-          .setPlaceholder('https://… or vault/path.ics')
-          .setValue(cal.url)
-          .onChange((v) => { cal.url = v.trim(); this.plugin.saveSettings(); });
-      })
-      .addColorPicker((c) =>
-        c.setValue(cal.color).onChange((v) => { cal.color = v; this.plugin.saveSettings(); }),
-      )
-      .addButton((btn) =>
-        btn
-          .setIcon('trash')
-          .setWarning()
-          .setTooltip('Remove calendar')
-          .onClick(() => {
-            this.plugin.settings.calendars =
-              this.plugin.settings.calendars.filter((c) => c.id !== cal.id);
+          .onChange((v) => {
+            cal.name = v;
+            label.setText(v || 'Unnamed Calendar');
             this.plugin.saveSettings();
-            this.display();
           }),
       );
 
-    // Show the calendar name in the setting header dynamically
-    s.nameEl.setText(cal.name || 'Unnamed Calendar');
+    // URL
+    new Setting(card)
+      .setName('ICS URL')
+      .addText((t) => {
+        t.inputEl.style.width = '340px';
+        t
+          .setPlaceholder('ICS URL — one per Outlook calendar')
+          .setValue(cal.url)
+          .onChange((v) => { cal.url = v.trim(); this.plugin.saveSettings(); });
+      });
+
+    // Color
+    new Setting(card)
+      .setName('Color')
+      .addColorPicker((c) =>
+        c.setValue(cal.color).onChange((v) => { cal.color = v; this.plugin.saveSettings(); }),
+      );
   }
 }

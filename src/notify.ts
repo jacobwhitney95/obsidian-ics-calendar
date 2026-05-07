@@ -3,67 +3,37 @@ import type ICSCalendarPlugin from './main';
 import type { ParsedEvent } from './parser';
 import { formatTime, isSameDay } from './utils';
 
-// ─── Electron notification helper ─────────────────────────────────────────────
+// ─── Native notification via Web Notification API ─────────────────────────────
+//
+// Electron's renderer process (where Obsidian plugins run) has full access to
+// window.Notification — the standard browser Notification API. This is simpler
+// and more reliable than going through @electron/remote, which requires the main
+// process to explicitly enable it per BrowserWindow (Obsidian doesn't do this
+// for plugins).
 
-type ElectronNotificationClass = {
-  isSupported(): boolean;
-  new (opts: { title: string; body: string; silent?: boolean }): {
-    on(event: string, cb: () => void): void;
-    show(): void;
-  };
-};
-
-function getElectronNotification(): ElectronNotificationClass | null {
-  try {
-    // Modern Obsidian (Electron 14+) uses @electron/remote
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const remote = require('@electron/remote') as { Notification?: ElectronNotificationClass };
-    if (remote?.Notification) return remote.Notification;
-  } catch { /* not available */ }
-
-  try {
-    // Older Electron — electron.remote
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const electron = require('electron') as { remote?: { Notification?: ElectronNotificationClass } };
-    if (electron?.remote?.Notification) return electron.remote.Notification;
-  } catch { /* not available */ }
-
-  return null;
-}
-
-/** Fire a native Windows (or macOS) Action-Center notification via Electron.
- *  Returns true on success; false if Electron is unavailable (mobile/web). */
+/** Fire a native OS Action-Center notification.
+ *  Returns true on success; false if notifications are unavailable/denied. */
 export function fireNativeNotification(
   title: string,
   body: string,
   onClick?: () => void,
 ): boolean {
-  const ElNotif = getElectronNotification();
-  if (!ElNotif) return false;
-
   try {
-    if (!ElNotif.isSupported()) return false;
+    if (!('Notification' in window)) return false;
 
-    const n = new ElNotif({ title, body, silent: false });
+    if (Notification.permission === 'denied') return false;
 
-    if (onClick) {
-      n.on('click', onClick);
-    } else {
-      // Default: bring Obsidian window to front
-      n.on('click', () => {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const remote = require('@electron/remote') as { getCurrentWindow?(): { show(): void; focus(): void } };
-          remote.getCurrentWindow?.()?.show?.();
-          remote.getCurrentWindow?.()?.focus?.();
-        } catch { /* ignore */ }
-      });
+    // If not yet granted, request permission (async — won't fire this time)
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+      return false;
     }
 
-    n.show();
+    const n = new Notification(title, { body, silent: false });
+    n.onclick = onClick ?? (() => { window.focus(); });
     return true;
   } catch (e) {
-    console.warn('[ICS Calendar] Electron notification failed:', e);
+    console.warn('[ICS Calendar] Notification failed:', e);
     return false;
   }
 }
